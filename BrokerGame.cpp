@@ -1,4 +1,5 @@
-﻿#include <iomanip> // Обязательно для setw
+﻿#include <cmath>   // для round
+#include <iomanip> // Обязательно для setw
 #include <iostream>
 #include <map>
 #include <stdlib.h>
@@ -31,47 +32,69 @@ TODO: 123
 //   }
 // }
 
-void draw_graph(map<int, int> history, int price_step, int period[2]) {
+// events: [номер_периода][точная_цена] = 'B' или 'S'
+struct Event {
+  int time;  // Номер периода (строка)
+  int price; // Точная цена
+  char type; // 'B' (Buy) или 'S' (Sell)
+};
+
+void draw_graph(map<int, int> history, int price_step, int period[2],
+                const vector<Event> &events) {
   if (price_step <= 0)
     return;
 
   int max_price = 0;
-  size_t max_count = 0;
-
-  // 1. Сначала находим максимум для шкалы и для выравнивания
+  // 1. Поиск максимумов (с правильным округлением вверх)
   for (int i = period[0]; i <= period[1]; ++i) {
     if (history[i] > max_price)
       max_price = history[i];
-
-    size_t current_count = static_cast<size_t>(history[i] / price_step);
-    if (current_count > max_count)
-      max_count = current_count;
   }
 
-  // 2. Рисуем строки
+  // Считаем общее макс. кол-во ячеек для всей шкалы
+  size_t max_count =
+      static_cast<size_t>((max_price + price_step - 1) / price_step);
+
+  // 2. Отрисовка строк
   for (int i = period[0]; i <= period[1]; ++i) {
     cout << setw(2) << i << " | ";
 
-    int current_price = history[i];
-    size_t count = static_cast<size_t>(current_price / price_step);
+    int current_line_price = history[i];
+    // Важно: здесь тоже округляем вверх
+    size_t cells_in_line =
+        static_cast<size_t>((current_line_price + price_step - 1) / price_step);
 
-    // Рисуем решетки
-    for (size_t j = 0; j < count; ++j) {
-      cout << "#   ";
+    int event_price_to_show = -1;
+
+    for (size_t j = 1; j <= cells_in_line; ++j) {
+      int cell_min = static_cast<int>(j - 1) * price_step;
+      int cell_max = static_cast<int>(j) * price_step;
+      char symbol = '#';
+
+      for (size_t k = 0; k < events.size(); ++k) {
+        if (events[k].time == i && events[k].price > cell_min &&
+            events[k].price <= cell_max) {
+          symbol = events[k].type;
+          event_price_to_show = events[k].price;
+          break;
+        }
+      }
+      cout << symbol << "   ";
     }
 
-    // ВЫРАВНИВАНИЕ ЦЕН:
-    // Добиваем пустые места пробелами до самого длинного столбца
-    // (max_count - count) — сколько "ячеек" по 4 символа не дорисовано
-    for (size_t space = 0; space < (max_count - count); ++space) {
+    // 3. Выравнивание (теперь max_count всегда >= cells_in_line)
+    for (size_t space = 0; space < (max_count - cells_in_line); ++space) {
       cout << "    ";
     }
 
-    // Теперь цена всегда будет в одном и том же столбце
-    cout << " (" << current_price << ")" << endl;
+    cout << " (" << setw(2) << current_line_price << ")";
+    if (event_price_to_show != -1) {
+      cout << " [" << event_price_to_show << "]";
+    }
+    cout << endl;
   }
 
-  // 3. Разделитель и шкала
+  // 4. Шкала (Ось X)
   cout << "   / ";
   for (int p = price_step; p <= max_price; p += price_step) {
     cout << left << setw(4) << p;
@@ -119,7 +142,7 @@ public:
 
 int main() {
   cout << "Hello World!\n";
-  int period[2]{0, 5};
-  draw_graph({{0, 100}, {1, 35}, {2, 20}, {3, 50}, {4, 105}, {5, 10}}, 10,
-             period);
+  int period[2]{1, 4};
+  draw_graph({{0, 25}, {1, 35}, {2, 20}, {3, 50}, {4, 15}}, 8, period,
+             {{1, 32, 'B'}, {3, 50, 'S'}});
 }
