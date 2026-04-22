@@ -1,6 +1,7 @@
 ﻿#include <clocale>
-#include <iomanip> // Обязательно для setw
+#include <iomanip>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <random>
 #include <stdlib.h>
@@ -11,8 +12,8 @@ using namespace std;
 
 /*
 TODO: 123
- * Создать список валют
- * Создать генератор валют
+ * Create a currency list
+ * Create a currency generator
 */
 
 /*
@@ -24,25 +25,13 @@ TODO: 123
    / 5  10 15 20 25 30 35 40
 */
 
-// void draw_graph(map<int, int> history, int price_step, int period[2]) {
-//   int start_price = history[period[0]];
-//   cout << string(static_cast<size_t>(start_price / price_step), '#') << endl;
-//   for (int i = 1; i <= period[1]; i++) {
-//     start_price = history[i];
-//     cout << string(static_cast<size_t>(start_price / price_step), '#') <<
-//     endl;
-//   }
-// }
-
-// events: [номер_периода][точная_цена] = 'B' или 'S'
+// events: [time_period][exact_price] = 'B' or 'S'
 struct Event {
-  int time;  // Номер периода (строка)
-  int price; // Точная цена
-  char type; // 'B' (Buy) или 'S' (Sell)
+  int time;  // Period number (row)
+  int price; // Exact price
+  int count; // Number of units
+  char type; // 'B' (Buy) or 'S' (Sell)
 };
-
-void draw_graph(map<int, int> history, int price_step, int period[2],
-                const vector<Event> &events);
 
 int read_int(const string &message) {
   int value;
@@ -53,36 +42,41 @@ int read_int(const string &message) {
       return value;
     }
 
-    cout << "Некорректный ввод. Попробуйте еще раз.\n";
     cin.clear();
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cout << "Invalid input. Try again.\n";
   }
 }
+
 void draw_graph(map<int, int> history, int price_step, int period[2],
                 const vector<Event> &events) {
   if (price_step <= 0)
     return;
+  if (price_step < 5)
+    price_step = 5;
 
   int max_price = 0;
-  // 1. Поиск максимумов (с правильным округлением вверх)
+  // 1. Find max values with upward rounding
   for (int i = period[0]; i <= period[1]; ++i) {
     if (history[i] > max_price)
       max_price = history[i];
   }
 
-  // Считаем общее макс. кол-во ячеек для всей шкалы
+  // Calculate the max number of cells for the full scale
   size_t max_count =
       static_cast<size_t>((max_price + price_step - 1) / price_step);
 
-  // 2. Отрисовка строк
+  // 2. Draw rows
   for (int i = period[0]; i <= period[1]; ++i) {
     cout << setw(2) << i << " | ";
 
     int current_line_price = history[i];
-    // Важно: здесь тоже округляем вверх
+    // Keep the same upward rounding here
     size_t cells_in_line =
         static_cast<size_t>((current_line_price + price_step - 1) / price_step);
 
     int event_price_to_show = -1;
+    int event_count_to_show = -1;
 
     for (size_t j = 1; j <= cells_in_line; ++j) {
       int cell_min = static_cast<int>(j - 1) * price_step;
@@ -94,25 +88,27 @@ void draw_graph(map<int, int> history, int price_step, int period[2],
             events[k].price <= cell_max) {
           symbol = events[k].type;
           event_price_to_show = events[k].price;
+          event_count_to_show = events[k].count;
           break;
         }
       }
       cout << symbol << "   ";
     }
 
-    // 3. Выравнивание (теперь max_count всегда >= cells_in_line)
+    // 3. Alignment
     for (size_t space = 0; space < (max_count - cells_in_line); ++space) {
       cout << "    ";
     }
 
     cout << " (" << setw(2) << current_line_price << ")";
-    if (event_price_to_show != -1) {
-      cout << " [" << event_price_to_show << "]";
+    if (event_price_to_show != -1 && event_count_to_show != -1) {
+      cout << " [" << event_price_to_show << " < " << event_count_to_show
+           << "]";
     }
     cout << endl;
   }
 
-  // 4. Шкала (Ось X)
+  // 4. Scale (X axis)
   cout << "   / ";
   for (int p = price_step; p <= max_price; p += price_step) {
     cout << left << setw(4) << p;
@@ -150,7 +146,7 @@ void show_graph_from_history(const string &title,
                              const vector<int> &history_values, int price_step,
                              const vector<Event> &events = vector<Event>()) {
   if (history_values.empty()) {
-    cout << title << "\nНет данных для построения графика.\n";
+    cout << title << "\nNo data for graph.\n";
     return;
   }
 
@@ -205,6 +201,7 @@ private:
   map<Currency, Balance> portfolio;
   int money;
   vector<int> total_assets_history;
+  map<string, vector<Event>> events;
 
 public:
   Broker(map<Currency, Balance> &_portfolio) {
@@ -223,8 +220,8 @@ public:
   }
 
   void show_portfolio() {
-    cout << "\nПортфель:\n";
-    cout << "Баланс: " << money << "\n";
+    cout << "\nPortfolio:\n";
+    cout << "Balance: " << money << "\n";
 
     bool has_assets = false;
     for (map<Currency, Balance>::iterator item = portfolio.begin();
@@ -235,16 +232,16 @@ public:
 
       has_assets = true;
       cout << "- " << item->first.get_name() << ": " << item->second.count
-           << " шт. по текущей цене " << item->second.price << "\n";
+           << " units at current price " << item->second.price << "\n";
     }
 
     if (!has_assets) {
-      cout << "У игрока пока нет купленных валют.\n";
+      cout << "No purchased currencies yet.\n";
     }
   }
 
   void show_total_assets_changes() const {
-    cout << "\nИзменения стоимости портфеля:\n";
+    cout << "\nPortfolio value changes:\n";
 
     for (size_t i = 0; i < total_assets_history.size(); ++i) {
       int current_value = total_assets_history[i];
@@ -254,7 +251,7 @@ public:
         delta = current_value - total_assets_history[i - 1];
       }
 
-      cout << "Ход " << i << ": " << current_value;
+      cout << "Turn " << i << ": " << current_value;
       if (i > 0) {
         if (delta >= 0) {
           cout << " (+" << delta << ")";
@@ -268,13 +265,13 @@ public:
 
   void buy(Currency &currency, int count) {
     if (count <= 0) {
-      cout << "Количество должно быть больше нуля.\n";
+      cout << "Amount must be greater than zero.\n";
       return;
     }
 
     int total_price = currency.get_price() * count;
     if (total_price > money) {
-      cout << "Недостаточно средств для покупки.\n";
+      cout << "Not enough money to buy.\n";
       return;
     }
 
@@ -283,18 +280,21 @@ public:
     balance.count += count;
     money -= total_price;
 
-    cout << "Куплено " << count << " ед. " << currency.get_name() << " за "
+    cout << "Bought " << count << " units of " << currency.get_name() << " for "
          << total_price << ".\n";
+    events[currency.get_name()].push_back(
+        Event{static_cast<int>(currency.get_history().size() - 1),
+              currency.get_price(), count, 'B'});
   }
 
   void sell(Currency &currency, int count) {
     if (count <= 0) {
-      cout << "Количество должно быть больше нуля.\n";
+      cout << "Amount must be greater than zero.\n";
       return;
     }
     map<Currency, Balance>::iterator item = portfolio.find(currency);
     if (item == portfolio.end() || item->second.count < count) {
-      cout << "Недостаточно валюты для продажи.\n";
+      cout << "Not enough currency to sell.\n";
       return;
     }
 
@@ -303,8 +303,11 @@ public:
     item->second.price = currency.get_price();
     money += total_price;
 
-    cout << "Продано " << count << " ед. " << currency.get_name() << " за "
+    cout << "Sold " << count << " units of " << currency.get_name() << " for "
          << total_price << ".\n";
+    events[currency.get_name()].push_back(
+        Event{static_cast<int>(currency.get_history().size() - 1),
+              currency.get_price(), count, 'S'});
   }
 
   int get_total_assets() const {
@@ -316,6 +319,9 @@ public:
     }
 
     return total_assets;
+  }
+  const vector<Event> &get_events(const string &currency_name) {
+    return events[currency_name];
   }
 
   void record_total_assets() {
@@ -334,9 +340,9 @@ public:
   Terminal(vector<Currency> &_currencies) { currencies = _currencies; }
 
   void show_currencies(vector<Currency> &_currencies) {
-    cout << "\nДоступные валюты:\n";
-    cout << left << setw(4) << "ID" << setw(12) << "Название" << setw(10)
-         << "Цена" << setw(10) << "Шаг" << "Волат.\n";
+    cout << "\nAvailable currencies:\n";
+    cout << left << setw(4) << "ID" << setw(12) << "Name" << setw(10) << "Price"
+         << setw(10) << "Step" << "Vol.\n";
 
     for (size_t i = 0; i < _currencies.size(); ++i) {
       cout << left << setw(4) << i + 1 << setw(12) << _currencies[i].get_name()
@@ -361,23 +367,23 @@ public:
          item != selected_currency_indexes.end(); ++item) {
       if (*item == currency_index) {
         selected_currency_indexes.erase(item);
-        cout << "Валюта удалена из выбранного списка.\n";
+        cout << "Currency removed from selected list.\n";
         return;
       }
     }
 
     selected_currency_indexes.push_back(currency_index);
-    cout << "Валюта добавлена в выбранный список.\n";
+    cout << "Currency added to selected list.\n";
   }
 
   void manage_selected_currencies() {
-    cout << "\nНастройка выбранного списка валют:\n";
+    cout << "\nSelected currency list setup:\n";
     show_currencies(currencies);
 
     if (selected_currency_indexes.empty()) {
-      cout << "Список пока пуст.\n";
+      cout << "The list is currently empty.\n";
     } else {
-      cout << "Сейчас выбраны:\n";
+      cout << "Currently selected:\n";
       for (size_t i = 0; i < selected_currency_indexes.size(); ++i) {
         cout << "- "
              << currencies[static_cast<size_t>(selected_currency_indexes[i])]
@@ -386,18 +392,18 @@ public:
       }
     }
 
-    cout << "Введите ID валюты для добавления или удаления.\n";
-    cout << "Введите 0, чтобы вернуться в меню.\n";
+    cout << "Enter a currency ID to add or remove.\n";
+    cout << "Enter 0 to return to the menu.\n";
 
     while (true) {
-      int currency_id = read_int("ID валюты: ");
+      int currency_id = read_int("Currency ID: ");
       if (currency_id == 0) {
         break;
       }
 
       if (currency_id < 1 ||
           currency_id > static_cast<int>(currencies.size())) {
-        cout << "Валюты с таким ID не существует.\n";
+        cout << "Currency with this ID does not exist.\n";
         continue;
       }
 
@@ -405,10 +411,10 @@ public:
     }
   }
 
-  void show_selected_currencies() {
-    cout << "\nВыбранный список валют:\n";
+  void show_selected_currencies(Broker &broker) {
+    cout << "\nSelected currency list:\n";
     if (selected_currency_indexes.empty()) {
-      cout << "Список пуст. Сначала добавьте валюты в выбранный список.\n";
+      cout << "The list is empty. Add currencies first.\n";
       return;
     }
 
@@ -417,10 +423,11 @@ public:
           currencies[static_cast<size_t>(selected_currency_indexes[i])];
 
       cout << "\n" << currency.get_name() << "\n";
-      cout << "Текущая цена: " << currency.get_price() << "\n";
+      cout << "Current price: " << currency.get_price() << "\n";
 
-      show_graph_from_history("Мини-график:", currency.get_history(),
-                              currency.get_price_step());
+      show_graph_from_history("Mini graph:", currency.get_history(),
+                              currency.get_price_step(),
+                              broker.get_events(currency.get_name()));
     }
   }
 
@@ -428,83 +435,79 @@ public:
     broker.show_portfolio();
     broker.show_total_assets_changes();
     show_graph_from_history(
-        "Мини-график стоимости портфеля:", broker.get_total_assets_history(),
+        "Portfolio value mini graph:", broker.get_total_assets_history(),
         calculate_graph_step(broker.get_total_assets_history()));
   }
 
   void run() {
     map<Currency, Balance> start_portfolio;
     Broker broker(start_portfolio);
-    const int max_turns = 10;
+    const int max_turns = 25;
 
-    cout << "Добро пожаловать в брокерскую игру!\n";
-    cout << "Стартовый капитал: 1000\n";
-    cout << "После каждого хода цены всех валют изменяются.\n";
+    cout << "Welcome to the broker game!\n";
+    cout << "Starting capital: 1000\n";
+    cout << "After each turn, all currency prices change.\n";
 
     int turn = 1;
-    while (turn <= max_turns) {
-      cout << "\n==============================\n";
-      cout << "Ход " << turn << " из " << max_turns << "\n";
-
-      broker.refresh_prices(currencies);
-      show_currencies(currencies);
-
-      cout << "\nДействия:\n";
-      cout << "1. Купить валюту\n";
-      cout << "2. Продать валюту\n";
-      cout << "3. Посмотреть портфель\n";
-      cout << "4. Настроить выбранный список валют\n";
-      cout << "5. Посмотреть выбранные валюты\n";
-      cout << "6. Пропустить ход\n";
-      cout << "0. Завершить игру\n";
-
-      int action = read_int("Выберите действие: ");
-      if (action == 0) {
-        cout << "Игра завершена досрочно.\n";
-        break;
-      }
-
+    bool is_game_ended = false;
+    while (turn <= max_turns && !is_game_ended) {
       bool is_turn_completed = false;
+      while (!is_turn_completed && !is_game_ended) {
+        cout << "\n==============================\n";
+        cout << "Turn " << turn << " of " << max_turns << "\n";
 
-      if (action == 1 || action == 2) {
-        int currency_id = read_int("Введите ID валюты: ");
-        if (currency_id < 1 ||
-            currency_id > static_cast<int>(currencies.size())) {
-          cout << "Валюты с таким ID не существует.\n";
-        } else {
-          int count = read_int("Введите количество: ");
-          Currency &selected_currency = currencies[currency_id - 1];
+        broker.refresh_prices(currencies);
+        show_currencies(currencies);
 
-          if (action == 1) {
-            broker.buy(selected_currency, count);
-          } else {
-            broker.sell(selected_currency, count);
-          }
+        cout << "\nActions:\n";
+        cout << "1. Buy currency\n";
+        cout << "2. Sell currency\n";
+        cout << "3. View portfolio\n";
+        cout << "4. Configure selected currency list\n";
+        cout << "5. View selected currencies\n";
+        cout << "6. End turn\n";
+        cout << "0. Exit game\n";
 
-          is_turn_completed = true;
+        int action = read_int("Choose an action: ");
+        if (action == 0) {
+          is_game_ended = true;
+          cout << "Game ended early.\n";
+          break;
         }
-      } else if (action == 3) {
-        show_portfolio_screen(broker);
-      } else if (action == 4) {
-        manage_selected_currencies();
-      } else if (action == 5) {
-        show_selected_currencies();
-      } else if (action == 6) {
-        cout << "Ход пропущен.\n";
-        is_turn_completed = true;
-      } else {
-        cout << "Неизвестное действие. Ход будет пропущен.\n";
-        is_turn_completed = true;
-      }
 
-      if (!is_turn_completed) {
-        continue;
+        if (action == 1 || action == 2) {
+          int currency_id = read_int("Enter currency ID: ");
+          if (currency_id < 1 ||
+              currency_id > static_cast<int>(currencies.size())) {
+            cout << "Currency with this ID does not exist.\n";
+          } else {
+            int count = read_int("Enter amount: ");
+            Currency &selected_currency =
+                currencies[static_cast<size_t>(currency_id - 1)];
+
+            if (action == 1) {
+              broker.buy(selected_currency, count);
+            } else {
+              broker.sell(selected_currency, count);
+            }
+          }
+        } else if (action == 3) {
+          show_portfolio_screen(broker);
+        } else if (action == 4) {
+          manage_selected_currencies();
+        } else if (action == 5) {
+          show_selected_currencies(broker);
+        } else if (action == 6) {
+          cout << "Turn ended.\n";
+          is_turn_completed = true;
+        } else {
+          cout << "Unknown action.\n";
+        }
       }
 
       for (size_t i = 0; i < currencies.size(); ++i) {
         currencies[i].priceChange();
       }
-
       broker.refresh_prices(currencies);
       broker.record_total_assets();
       ++turn;
@@ -512,12 +515,24 @@ public:
 
     broker.refresh_prices(currencies);
     cout << "\n==============================\n";
-    cout << "Финальное состояние:\n";
+    cout << "Final state:\n";
     show_currencies(currencies);
+
+    for (size_t i = 0; i < currencies.size(); ++i) {
+
+      int period[2] = {0, static_cast<int>(max_turns)};
+      cout << "Currency " << currencies[i].get_name() << " graph:\n";
+      draw_graph(build_history_map(currencies[i].get_history()),
+                 currencies[i].get_price_step(), period, vector<Event>());
+    }
+
+    cout << "\n==============================\n";
+
     show_portfolio_screen(broker);
-    cout << "Общая стоимость активов: " << broker.get_total_assets() << "\n";
+    cout << "Total asset value: " << broker.get_total_assets() << "\n";
   }
 };
+int stop;
 
 int main() {
   vector<Currency> currencies;
@@ -528,7 +543,10 @@ int main() {
   currencies.push_back(Currency("EUR", 60, 5, 3));
   currencies.push_back(Currency("BTC", 120, 10, 4));
   currencies.push_back(Currency("ETH", 90, 10, 3));
+  currencies.push_back(Currency("XRP", 75, 15, 2));
+  currencies.push_back(Currency("SOL", 80, 1, 10));
 
   Terminal terminal(currencies);
   terminal.run();
+  cin >> stop;
 }
